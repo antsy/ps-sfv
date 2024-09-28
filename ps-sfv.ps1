@@ -8,8 +8,13 @@ $crc32 = add-type '
 public static extern uint RtlComputeCrc32(uint dwInitial, byte[] pData, int iLen);
 ' -Name crc32 -PassThru
 
-# Resolve the .sfv file path to an absolute path relative to the script's execution folder
-$sfvFilePath = Join-Path -Path $PSScriptRoot -ChildPath $sfvFilePath
+# Resolve the .sfv file path to an absolute path, supporting both local and network paths
+try {
+    $sfvFilePath = (Resolve-Path -Path $sfvFilePath -ErrorAction Stop).ProviderPath
+} catch {
+    Write-Host "The file '$sfvFilePath' does not exist or cannot be accessed."
+    exit 2
+}
 
 # Check if the .sfv file exists
 if (-not (Test-Path -Path $sfvFilePath)) {
@@ -32,11 +37,19 @@ Get-Content -Path $sfvFilePath | ForEach-Object {
             $filePath = $matches[1]
             $checksum = $matches[2]
 
+            # Resolve the file path to handle both local and network paths
+            try {
+                $resolvedFilePath = (Resolve-Path -Path $filePath -ErrorAction Stop).ProviderPath
+            } catch {
+                Write-Host "The file '$filePath' does not exist or cannot be accessed."
+                continue
+            }
+
             $fileChecksums += [PSCustomObject]@{
-                FilePath = $filePath
+                FilePath = $resolvedFilePath
                 Checksum = $checksum
             }
-            Write-Debug "Added: FilePath = '$filePath', Checksum = '$checksum'"
+            Write-Debug "Added: FilePath = '$resolvedFilePath', Checksum = '$checksum'"
         } else {
             Write-Debug "Skipping line: '$line' (unexpected format)"
         }
@@ -61,7 +74,7 @@ $missingFiles = 0
 
 # Compare the computed CRC32 checksum with the expected checksum
 foreach ($file in $fileChecksums) {
-    $filePath = Join-Path -Path (Split-Path -Parent $sfvFilePath) -ChildPath $file.FilePath
+    $filePath = $file.FilePath
 
     # Check if the file exists
     if (-not (Test-Path -Path $filePath)) {
